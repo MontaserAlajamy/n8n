@@ -98,7 +98,7 @@
         "headerAuth": [
           {
             "name": "Authorization",
-            "value": "Bearer [TWITTER_BEARER_TOKEN]"
+            "value": "Bearer [YOUR_TWITTER_BEARER_TOKEN]"
           }
         ],
         "url": "https://api.twitter.com/2/tweets/search/recent?query=الذكاء_الاصطناعي OR \"الذكاء الاصطناعي\" lang:ar -is:retweet",
@@ -115,7 +115,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Merge items from RSS and other sources into normalized array\nconst output = [];\nfor (const it of items) {\n  const j = it.json;\n  if (Array.isArray(j)) {\n    j.forEach(x => output.push(x));\n  } else {\n    output.push(j);\n  }\n}\nreturn output.map(i => ({ json: i }));"
+        "functionCode": "// Merge items from RSS and other sources into normalized array\nconst output = [];\nfor (const it of items) {\n  const j = it.json;\n  // Handle Twitter API response structure which might be in 'data' key\n  if (it.meta && it.meta.node === 'Twitter - Keyword Monitor (optional)' && j.data) {\n      j.data.forEach(item => output.push(item));\n  } else if (Array.isArray(j)) {\n    j.forEach(x => output.push(x));\n  } else {\n    output.push(j);\n  }\n}\nreturn output.map(i => ({ json: i }));"
       },
       "name": "Merge RSS outputs",
       "type": "n8n-nodes-base.function",
@@ -127,9 +127,9 @@
     },
     {
       "parameters": {
-        "functionCode": "// Deduplicate by URL (link) and normalize keys\nconst seen = new Set();\nconst out = [];\nfor (const it of items) {\n  const j = it.json;\n  const url = (j.link || j.url || j.id || '').toString();\n  if (!url) continue;\n  const normalized = url.split('?')[0];\n  if (seen.has(normalized)) continue;\n  seen.add(normalized);\n  out.push({ json: {\n    title: j.title || j.headline || j.name || '',\n    link: url,\n    pubDate: j.pubDate || j.published || null,\n    summary: j.contentSnippet || j.description || '',\n    source: j.source || j.feedTitle || '',\n    raw: j\n  }});\n}\nreturn out;"
+        "functionCode": "// Deduplicate by URL (link) and normalize keys\nconst seen = new Set();\nconst out = [];\nfor (const it of items) {\n  const j = it.json;\n  // Attempt to get a link, considering Twitter specific 'id' to form a URL\n  let url = (j.link || j.url || (j.id ? `https://twitter.com/i/status/${j.id}` : '') || '').toString();\n  \n  if (!url) continue;\n  const normalized = url.split('?')[0];\n  if (seen.has(normalized)) continue;\n  seen.add(normalized);\n  \n  out.push({ json: {\n    title: j.title || j.text || j.headline || j.name || 'No Title',\n    link: url,\n    pubDate: j.pubDate || j.published || j.created_at || null,\n    summary: j.contentSnippet || j.description || j.text || '',\n    source: j.source || j.feedTitle || (j.author_id ? 'Twitter' : 'Unknown')\n  }});\n}\nreturn out;"
       },
-      "name": "Deduplicate (by URL)",
+      "name": "Deduplicate (by URL) & Normalize",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
       "position": [
@@ -140,12 +140,19 @@
     {
       "parameters": {
         "url": "={{$json.link}}",
-        "responseFormat": "string",
-        "options": {}
+        "response": {
+          "response": {
+            "from": "body",
+            "type": "string"
+          }
+        },
+        "options": {
+          "ignoreStatusCodes": true
+        }
       },
       "name": "HTTP Request - Fetch Article HTML",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 1,
+      "typeVersion": 4.1,
       "position": [
         1800,
         300
@@ -153,46 +160,48 @@
     },
     {
       "parameters": {
-        "url": "={{ $node[\"HTTP Request - Fetch Article HTML\"].binary ? '' : $node[\"HTTP Request - Fetch Article HTML\"].json }}",
-        "properties": [
-          {
-            "key": "mainContent",
-            "attribute": "",
-            "selector": "article, main, [role='main'], .article-body, .post-content, .entry-content",
-            "type": "single"
-          },
-          {
-            "key": "ogImage",
-            "attribute": "content",
-            "selector": "meta[property='og:image'], meta[name='og:image']",
-            "type": "single"
-          },
-          {
-            "key": "titleFromMeta",
-            "attribute": "content",
-            "selector": "meta[property='og:title'], meta[name='og:title'], title",
-            "type": "single"
-          }
-        ]
+        "source": "html",
+        "html": "={{$node[\"HTTP Request - Fetch Article HTML\"].json.body}}",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "mainContent",
+              "cssSelector": "article, main, [role='main'], .article-body, .post-content, .entry-content",
+              "returnValue": "html"
+            },
+            {
+              "key": "ogImage",
+              "cssSelector": "meta[property='og:image'], meta[name='og:image'], meta[name='twitter:image']",
+              "returnValue": "attribute",
+              "attribute": "content"
+            },
+            {
+              "key": "titleFromMeta",
+              "cssSelector": "meta[property='og:title'], meta[name='og:title'], meta[name='twitter:title'], title",
+              "returnValue": "attribute",
+              "attribute": "content"
+            }
+          ]
+        }
       },
       "name": "HTML Extract - main content & og:image",
       "type": "n8n-nodes-base.htmlExtract",
       "typeVersion": 1,
       "position": [
         2100,
-        240
+        300
       ]
     },
     {
       "parameters": {
-        "functionCode": "// Use the extracted content; fallback to snippet; compute word count and filter short articles\nconst html = $node['HTML Extract - main content & og:image'].json.mainContent || $json.summary || '';\nconst text = (html + '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g,' ').trim();\nconst wordCount = text ? text.split(' ').length : 0;\nif (wordCount < 200) {\n  // drop short articles\n  return [];\n}\nreturn [{ json: {\n  title: $node['HTML Extract - main content & og:image'].json.titleFromMeta || $json.title,\n  link: $json.link,\n  pubDate: $json.pubDate,\n  source: $json.source,\n  content_text: text,\n  ogImage: $node['HTML Extract - main content & og:image'].json.ogImage\n} }];"
+        "functionCode": "// Use the extracted content; fallback to snippet; compute word count and filter short articles\nconst extractedData = $node['HTML Extract - main content & og:image'].json;\nconst html = extractedData.mainContent || $json.summary || '';\nconst text = (html + '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g,' ').trim();\nconst wordCount = text ? text.split(' ').length : 0;\n\nif (wordCount < 150) {\n  // drop short articles\n  return [];\n}\n\nreturn [{ json: {\n  ...$json,\n  title: extractedData.titleFromMeta || $json.title,\n  content_text: text,\n  ogImage: extractedData.ogImage\n} }];"
       },
-      "name": "Filter Short Articles (>200 words)",
+      "name": "Filter Short Articles (>150 words)",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
       "position": [
         2400,
-        240
+        300
       ]
     },
     {
@@ -205,22 +214,22 @@
       },
       "name": "Ollama - Summarize & Classify",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 1,
+      "typeVersion": 4.1,
       "position": [
         2700,
-        240
+        300
       ]
     },
     {
       "parameters": {
-        "functionCode": "// Parse Ollama response and attach to item\nlet parsed = {};\nconst resp = $node['Ollama - Summarize & Classify'].json.response;\ntry {\n  if (typeof resp === 'string') {\n    // Clean the response from markdown code blocks if any\n    const cleanedResp = resp.replace(/```json\\n|```/g, '').trim();\n    parsed = JSON.parse(cleanedResp);\n  } else {\n    parsed = resp; // Assume it's already an object\n  }\n} catch (e) {\n  console.log('Error parsing Ollama response:', e, 'Raw response:', resp);\n  parsed = {\n    english_summary: 'Error processing summary.',\n    arabic_summary: 'حدث خطأ أثناء معالجة الملخص.',\n    relevance_score_arabic_ai: 1,\n    keywords: ['error'],\n    category: 'Market News'\n  };\n}\nreturn [{ json: Object.assign({}, $json, { ollama: parsed }) }];"
+        "functionCode": "// Parse Ollama response and attach to item\nlet parsed = {};\nconst resp = $node['Ollama - Summarize & Classify'].json.response;\ntry {\n  if (typeof resp === 'string') {\n    // Clean the response from markdown code blocks if any\n    const cleanedResp = resp.replace(/```json\\n|```/g, '').trim();\n    parsed = JSON.parse(cleanedResp);\n  } else {\n    parsed = resp; // Assume it's already an object\n  }\n} catch (e) {\n  console.error('Error parsing Ollama response:', e, 'Raw response:', resp);\n  parsed = {\n    english_summary: 'Error processing summary.',\n    arabic_summary: 'حدث خطأ أثناء معالجة الملخص.',\n    relevance_score_arabic_ai: 1,\n    keywords: ['error'],\n    category: 'Market News'\n  };\n}\nreturn [{ json: Object.assign({}, $json, { ollama: parsed }) }];"
       },
       "name": "Parse Ollama Response",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
       "position": [
         3000,
-        240
+        300
       ]
     },
     {
@@ -232,7 +241,7 @@
       "typeVersion": 1,
       "position": [
         3300,
-        240
+        300
       ]
     },
     {
@@ -244,19 +253,19 @@
       "typeVersion": 1,
       "position": [
         3600,
-        240
+        300
       ]
     },
     {
       "parameters": {
-        "functionCode": "// Sort by relevance descending and build master JSON + Markdown digest\nconst data = $json.articles || [];\ndata.sort((a, b) => (b.relevance || 0) - (a.relevance || 0));\nconst master = { generated_at: new Date().toISOString(), count: data.length, articles: data };\n\nlet md = `*Daily AI News Digest (Arabic AI Priority)*\\n`;\nmd += `Generated: ${master.generated_at}\\n`;\nmd += `Total items: ${master.count}\\n\\n`;\n\nfor (const a of data) {\n  md += `--------------------\\n\\n`;\n  md += `*[${a.title}](${a.link})*\\n\\n`;\n  if (a.image) {\n    md += `[ ](${a.image})\\n`; // Invisible link for image preview\n  }\n  md += `*Source:* ${a.source || ''}\\n`;\n  md += `*Published:* ${a.pubDate || ''}\\n`;\n  md += `*Relevance (Arabic AI):* ${a.relevance} / 10\\n`;\n  md += `*Keywords:* ${(a.keywords || []).join(', ')}\\n\\n`;\n  md += `*ملخص:*\\n`;\n  md += `${a.arabic_summary || ''}\\n\\n`;\n  md += `[Read more](${a.link})\\n\\n`;\n}\n\nreturn [{ json: { master, markdown: md } }];"
+        "functionCode": "// Sort by relevance descending and build master JSON + Markdown digest\nconst data = $json.articles || [];\ndata.sort((a, b) => (b.relevance || 0) - (a.relevance || 0));\nconst master = { generated_at: new Date().toISOString(), count: data.length, articles: data };\n\nlet md = `*Daily AI News Digest (Arabic AI Priority)*\\n`;\nmd += `Generated: ${new Date(master.generated_at).toUTCString()}\\n`;\nmd += `Total items: ${master.count}\\n\\n`;\n\nfor (const a of data) {\n  // Sanitize title for markdown, escaping special characters\n  const title = (a.title || 'No Title').replace(/([_*`\\[\\]()~>#+\\-=|{}.!])/g, '\\\\$1');\n\n  md += `--------------------\\n\\n`;\n  md += `*[${title}](${a.link})*\\n\\n`;\n  if (a.image) {\n    // Use a zero-width space for image previews in Telegram\n    md += `[ ](${a.image})\\n`; \n  }\n  md += `*Source:* ${a.source || 'N/A'}\\n`;\n  md += `*Published:* ${a.pubDate ? new Date(a.pubDate).toUTCString() : 'N/A'}\\n`;\n  md += `*Relevance (Arabic AI):* ${a.relevance} / 10\\n`;\n  md += `*Keywords:* ${(a.keywords || []).join(', ')}\\n\\n`;\n  md += `*ملخص:*\\n`;\n  md += `${a.arabic_summary || ''}\\n\\n`;\n}\n\nreturn [{ json: { master, markdown: md } }];"
       },
       "name": "Compile Digest (sort & format)",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
       "position": [
         3900,
-        240
+        300
       ]
     },
     {
@@ -267,14 +276,14 @@
         "options": {
           "timeout": 60000
         },
-        "bodyParametersJson": "{\n  \"chat_id\": \"987654321\",\n  \"text\": \"={{$node[\\\"Compile Digest (sort & format)\\\"].json[\\\"markdown\\\"]}}\",\n  \"parse_mode\": \"Markdown\"\n}"
+        "bodyParametersJson": "{\n  \"chat_id\": \"987654321\",\n  \"text\": \"={{$node[\\\"Compile Digest (sort & format)\\\"].json.markdown}}\",\n  \"parse_mode\": \"Markdown\"\n}"
       },
       "name": "Send Digest - Telegram",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 1,
+      "typeVersion": 4.1,
       "position": [
         4200,
-        240
+        300
       ]
     },
     {
@@ -304,255 +313,147 @@
     "Schedule Trigger (daily @ 06:00 UTC)": {
       "main": [
         [
-          {
-            "node": "RSS - TechCrunch AI",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "RSS - VentureBeat AI",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "RSS - arXiv cs.AI",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "RSS - AI Trends",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "RSS - Hacker News (tech signals)",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Google News RSS (الذكاء الاصطناعي)",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Twitter - Keyword Monitor (optional)",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "RSS - TechCrunch AI", "type": "main", "index": 0 },
+          { "node": "RSS - VentureBeat AI", "type": "main", "index": 0 },
+          { "node": "RSS - arXiv cs.AI", "type": "main", "index": 0 },
+          { "node": "RSS - AI Trends", "type": "main", "index": 0 },
+          { "node": "RSS - Hacker News (tech signals)", "type": "main", "index": 0 },
+          { "node": "Google News RSS (الذكاء الاصطناعي)", "type": "main", "index": 0 },
+          { "node": "Twitter - Keyword Monitor (optional)", "type": "main", "index": 0 }
         ]
       ]
     },
     "RSS - TechCrunch AI": {
       "main": [
         [
-          {
-            "node": "Merge RSS outputs",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Merge RSS outputs", "type": "main", "index": 0 }
         ]
       ]
     },
     "RSS - VentureBeat AI": {
       "main": [
         [
-          {
-            "node": "Merge RSS outputs",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Merge RSS outputs", "type": "main", "index": 0 }
         ]
       ]
     },
     "RSS - arXiv cs.AI": {
       "main": [
         [
-          {
-            "node": "Merge RSS outputs",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Merge RSS outputs", "type": "main", "index": 0 }
         ]
       ]
     },
     "RSS - AI Trends": {
       "main": [
         [
-          {
-            "node": "Merge RSS outputs",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Merge RSS outputs", "type": "main", "index": 0 }
         ]
       ]
     },
     "RSS - Hacker News (tech signals)": {
       "main": [
         [
-          {
-            "node": "Merge RSS outputs",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Merge RSS outputs", "type": "main", "index": 0 }
         ]
       ]
     },
     "Google News RSS (الذكاء الاصطناعي)": {
       "main": [
         [
-          {
-            "node": "Merge RSS outputs",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Merge RSS outputs", "type": "main", "index": 0 }
         ]
       ]
     },
     "Twitter - Keyword Monitor (optional)": {
       "main": [
         [
-          {
-            "node": "Merge RSS outputs",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Merge RSS outputs", "type": "main", "index": 0 }
         ]
       ]
     },
     "Merge RSS outputs": {
       "main": [
         [
-          {
-            "node": "Deduplicate (by URL)",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Deduplicate (by URL) & Normalize", "type": "main", "index": 0 }
         ]
       ]
     },
-    "Deduplicate (by URL)": {
+    "Deduplicate (by URL) & Normalize": {
       "main": [
         [
-          {
-            "node": "HTTP Request - Fetch Article HTML",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "HTTP Request - Fetch Article HTML", "type": "main", "index": 0 }
         ]
       ]
     },
     "HTTP Request - Fetch Article HTML": {
       "main": [
         [
-          {
-            "node": "HTML Extract - main content & og:image",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "HTML Extract - main content & og:image", "type": "main", "index": 0 }
         ]
       ]
     },
     "HTML Extract - main content & og:image": {
       "main": [
         [
-          {
-            "node": "Filter Short Articles (>200 words)",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Filter Short Articles (>150 words)", "type": "main", "index": 0 }
         ]
       ]
     },
-    "Filter Short Articles (>200 words)": {
+    "Filter Short Articles (>150 words)": {
       "main": [
         [
-          {
-            "node": "Ollama - Summarize & Classify",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Ollama - Summarize & Classify", "type": "main", "index": 0 }
         ]
       ]
     },
     "Ollama - Summarize & Classify": {
       "main": [
         [
-          {
-            "node": "Parse Ollama Response",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Parse Ollama Response", "type": "main", "index": 0 }
         ]
       ]
     },
     "Parse Ollama Response": {
       "main": [
         [
-          {
-            "node": "Normalize Ollama Output",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Normalize Ollama Output", "type": "main", "index": 0 }
         ]
       ]
     },
     "Normalize Ollama Output": {
       "main": [
         [
-          {
-            "node": "Aggregate Enriched Articles",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Aggregate Enriched Articles", "type": "main", "index": 0 }
         ]
       ]
     },
     "Aggregate Enriched Articles": {
       "main": [
         [
-          {
-            "node": "Compile Digest (sort & format)",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Compile Digest (sort & format)", "type": "main", "index": 0 }
         ]
       ]
     },
     "Compile Digest (sort & format)": {
       "main": [
         [
-          {
-            "node": "Send Digest - Telegram",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "WhatsApp Integration Note (Twilio) - Info",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Send Digest - Telegram", "type": "main", "index": 0 },
+          { "node": "WhatsApp Integration Note (Twilio) - Info", "type": "main", "index": 0 }
         ]
       ]
     },
     "Send Digest - Telegram": {
       "main": [
         [
-          {
-            "node": "NoOp - End",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "NoOp - End", "type": "main", "index": 0 }
         ]
       ]
     },
     "WhatsApp Integration Note (Twilio) - Info": {
       "main": [
         [
-          {
-            "node": "NoOp - End",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "NoOp - End", "type": "main", "index": 0 }
         ]
       ]
     }
