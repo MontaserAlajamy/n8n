@@ -1,5 +1,5 @@
 {
-  "name": "Daily AI News Digest - Arabic AI Priority (Ollama)",
+  "name": "Daily AI News Digest - Arabic AI Priority (Ollama) - Production Template",
   "nodes": [
     {
       "parameters": {
@@ -14,98 +14,91 @@
         250
       ]
     },
-
     {
       "parameters": {
-        "url": "[RSS_FEED_URL_1]",
+        "url": "https://techcrunch.com/tag/ai/feed/",
         "limit": 20
       },
-      "name": "RSS - Feed 1 (TechCrunch AI placeholder)",
+      "name": "RSS - TechCrunch AI",
       "type": "n8n-nodes-base.rssFeedRead",
       "typeVersion": 1,
       "position": [
         600,
-        80
+        60
       ]
     },
-
     {
       "parameters": {
-        "url": "[RSS_FEED_URL_2]",
+        "url": "https://venturebeat.com/category/ai/feed/",
         "limit": 20
       },
-      "name": "RSS - Feed 2 (VentureBeat AI placeholder)",
+      "name": "RSS - VentureBeat AI",
       "type": "n8n-nodes-base.rssFeedRead",
       "typeVersion": 1,
       "position": [
         600,
-        160
+        140
       ]
     },
-
     {
       "parameters": {
-        "url": "[RSS_FEED_URL_3]",
+        "url": "http://export.arxiv.org/rss/cs.AI",
         "limit": 20
       },
-      "name": "RSS - Feed 3 (ArXiv/AI placeholder)",
+      "name": "RSS - arXiv cs.AI",
       "type": "n8n-nodes-base.rssFeedRead",
       "typeVersion": 1,
       "position": [
         600,
-        240
+        220
       ]
     },
-
     {
       "parameters": {
-        "url": "[RSS_FEED_URL_4]",
+        "url": "https://aitrends.com/feed/",
         "limit": 20
       },
-      "name": "RSS - Feed 4 (AI-specific blog placeholder)",
+      "name": "RSS - AI Trends",
       "type": "n8n-nodes-base.rssFeedRead",
       "typeVersion": 1,
       "position": [
         600,
-        320
+        300
       ]
     },
-
     {
       "parameters": {
-        "url": "[RSS_FEED_URL_5]",
+        "url": "https://news.ycombinator.com/rss",
         "limit": 20
       },
-      "name": "RSS - Feed 5 (Arabic / regional placeholder)",
+      "name": "RSS - Hacker News (tech signals)",
       "type": "n8n-nodes-base.rssFeedRead",
       "typeVersion": 1,
       "position": [
         600,
-        400
+        380
       ]
     },
-
     {
       "parameters": {
-        "url": "[GOOGLE_NEWS_RSS_FOR_الذكاء_الاصطناعي_العربي]",
+        "url": "https://news.google.com/rss/search?q=الذكاء+الاصطناعي&hl=ar&gl=AE&ceid=AE:ar",
         "limit": 30
       },
-      "name": "Google News RSS (الذكاء الاصطناعي العربي)",
+      "name": "Google News RSS (الذكاء الاصطناعي)",
       "type": "n8n-nodes-base.rssFeedRead",
       "typeVersion": 1,
       "position": [
         600,
-        480
+        460
       ]
     },
-
     {
       "parameters": {
         "authentication": "headerAuth",
         "headerAuth": [
           {
             "name": "Authorization",
-            "value": "Bearer [YOUR_TWITTER_BEARER_TOKEN]"
+            "value": "Bearer [TWITTER_BEARER_TOKEN]"
           }
         ],
         "url": "https://api.twitter.com/2/tweets/search/recent?query=الذكاء_الاصطناعي OR \"الذكاء الاصطناعي\" lang:ar -is:retweet",
@@ -117,10 +110,9 @@
       "typeVersion": 1,
       "position": [
         600,
-        560
+        540
       ]
     },
-
     {
       "parameters": {
         "mode": "append",
@@ -137,10 +129,9 @@
         300
       ]
     },
-
     {
       "parameters": {
-        "functionCode": "// Merge incoming items and normalize to {title, link, pubDate, source, contentSnippet}\nconst out = [];\nitems.forEach(i => {\n  const data = i.json;\n  // RSS node returns: title, link, pubDate, contentSnippet or content\n  if (Array.isArray(data)) {\n    data.forEach(d => out.push(d));\n  } else {\n    out.push(data);\n  }\n});\nreturn out.map(i=>({json: i}));"
+        "functionCode": "// Merge items from RSS and other sources into normalized array\nconst output = [];\nfor (const it of items) {\n  const j = it.json;\n  if (Array.isArray(j)) {\n    j.forEach(x => output.push(x));\n  } else {\n    output.push(j);\n  }\n}\nreturn output.map(i => ({ json: i }));"
       },
       "name": "Merge RSS outputs",
       "type": "n8n-nodes-base.function",
@@ -150,10 +141,9 @@
         300
       ]
     },
-
     {
       "parameters": {
-        "functionCode": "// Deduplicate by URL (link) and normalize keys\nconst seen = new Set();\nconst out = [];\nfor (const it of items) {\n  const j = it.json;\n  const url = (j.link || j.url || j.id || '').toString();\n  if (!url) continue;\n  if (seen.has(url)) continue;\n  seen.add(url);\n  // normalize\n  out.push({json: {\n    title: j.title || j.headline || '',\n    link: url,\n    pubDate: j.pubDate || j.published || null,\n    summary: j.contentSnippet || j.description || '',\n    source: j.source || j.feedTitle || '',\n    raw: j\n  }});\n}\nreturn out;"
+        "functionCode": "// Deduplicate by URL (link) and normalize keys\nconst seen = new Set();\nconst out = [];\nfor (const it of items) {\n  const j = it.json;\n  const url = (j.link || j.url || j.id || '').toString();\n  if (!url) continue;\n  const normalized = url.split('?')[0];\n  if (seen.has(normalized)) continue;\n  seen.add(normalized);\n  out.push({ json: {\n    title: j.title || j.headline || j.name || '',\n    link: url,\n    pubDate: j.pubDate || j.published || null,\n    summary: j.contentSnippet || j.description || '',\n    source: j.source || j.feedTitle || '',\n    raw: j\n  }});\n}\nreturn out;"
       },
       "name": "Deduplicate (by URL)",
       "type": "n8n-nodes-base.function",
@@ -163,14 +153,13 @@
         300
       ]
     },
-
     {
       "parameters": {
         "url": "={{$json[\"link\"]}}",
         "responseFormat": "string",
         "options": {
           "followRedirect": true,
-          "timeout": 30
+          "timeout": 60
         }
       },
       "name": "HTTP Request - Fetch Article HTML",
@@ -181,15 +170,14 @@
         240
       ]
     },
-
     {
       "parameters": {
-        "html": "={{$node[\"HTTP Request - Fetch Article HTML\"].binary ? '' : $node[\"HTTP Request - Fetch Article HTML\"].json}}\n",
+        "html": "={{$node[\"HTTP Request - Fetch Article HTML\"].binary ? '' : $node[\"HTTP Request - Fetch Article HTML\"].json}}",
         "properties": [
           {
             "key": "mainContent",
             "attribute": "",
-            "selector": "article, main, [role='main'], .article-body, .post-content",
+            "selector": "article, main, [role='main'], .article-body, .post-content, .entry-content",
             "type": "single"
           },
           {
@@ -214,10 +202,9 @@
         240
       ]
     },
-
     {
       "parameters": {
-        "functionCode": "// Use the extracted content; fallback to snippet; compute word count and filter short articles\nconst html = $node['HTML Extract - main content & og:image'].json.mainContent || $json.summary || '';\nconst text = (html + '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g,' ').trim();\nconst wordCount = text ? text.split(' ').length : 0;\nif (wordCount < 200) {\n  // drop short articles\n  return [];\n}\n// pass forward the important fields\nreturn [{json: {\n  title: $node['HTML Extract - main content & og:image'].json.titleFromMeta || $json.title,\n  link: $json.link,\n  pubDate: $json.pubDate,\n  source: $json.source,\n  content_text: text,\n  ogImage: $node['HTML Extract - main content & og:image'].json.ogImage || null\n}}];"
+        "functionCode": "// Use the extracted content; fallback to snippet; compute word count and filter short articles\nconst html = $node['HTML Extract - main content & og:image'].json.mainContent || $json.summary || '';\nconst text = (html + '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g,' ').trim();\nconst wordCount = text ? text.split(' ').length : 0;\nif (wordCount < 200) {\n  // drop short articles\n  return [];\n}\nreturn [{ json: {\n  title: $node['HTML Extract - main content & og:image'].json.titleFromMeta || $json.title,\n  link: $json.link,\n  pubDate: $json.pubDate,\n  source: $json.source,\n  content_text: text,\n  ogImage: $node['HTML Extract - main content & og:image'].json.ogImage || null\n}}];"
       },
       "name": "Filter Short Articles (>200 words)",
       "type": "n8n-nodes-base.function",
@@ -227,17 +214,15 @@
         240
       ]
     },
-
     {
       "parameters": {
-        "resource": "post",
-        "operation": "generic",
-        "url": "={{$json[\"link\"]}}",
+        "url": "http://localhost:11434/api/generate",
         "method": "POST",
-        "responseFormat": "json",
         "jsonParameters": true,
-        "options": {},
-        "bodyParametersJson": "={\n  \"model\": \"[YOUR_OLLAMA_MODEL_NAME]\",\n  \"prompt\": `You are an expert assistant. Input article URL: {{$json.link}}\\nArticle text:\\n{{$json.content_text}}\\n\\nProduce a clean JSON object exactly with these keys: english_summary, arabic_summary, relevance_score_arabic_ai, keywords, category.\\n- english_summary: professional 3-4 sentence summary in English.\\n- arabic_summary: professional 3-4 sentence summary in Arabic (Modern Standard Arabic).\\n- relevance_score_arabic_ai: integer 1-10 (10=direct Arabic AI breakthrough).\\n- keywords: array of up to 6 keywords, short words in Arabic/English.\\n- category: one of ['LLM Development','AI Application','AI Research','Market News','Arabic AI Breakthrough'].\\nReturn only the JSON object (no explanation).`,\n  \"max_tokens\": 800\n}"
+        "options": {
+          "timeout": 120
+        },
+        "bodyParametersJson": "={\n  \"model\": \"[YOUR_OLLAMA_MODEL_NAME]\",\n  \"prompt\": `You are an expert assistant. Input article URL: {{$json.link}}\\nArticle text:\\n{{$json.content_text}}\\n\\nProduce a clean JSON object exactly with these keys: english_summary, arabic_summary, relevance_score_arabic_ai, keywords, category.\\n- english_summary: professional 3-4 sentence summary in English.\\n- arabic_summary: professional 3-4 sentence summary in Arabic (Modern Standard Arabic).\\n- relevance_score_arabic_ai: integer 1-10 (10=direct Arabic AI breakthrough).\\n- keywords: array of up to 6 keywords in Arabic/English.\\n- category: one of ['LLM Development','AI Application','AI Research','Market News','Arabic AI Breakthrough'].\\nReturn only the JSON object (no explanation).`,\n  \"max_tokens\": 800\n}"
       },
       "name": "Ollama - Summarize & Classify (HTTP Request)",
       "type": "n8n-nodes-base.httpRequest",
@@ -247,10 +232,9 @@
         240
       ]
     },
-
     {
       "parameters": {
-        "functionCode": "// Parse Ollama response and attach to item\nlet parsed = {};\ntry {\n  // Some Ollama endpoints return raw text; allow both already-json and text\n  if (typeof $json === 'object' && $json !== null && Object.keys($json).length>0 && ($json.english_summary || $json.arabic_summary || $json.relevance_score_arabic_ai)) {\n    parsed = $json;\n  } else if (typeof $node['Ollama - Summarize & Classify (HTTP Request)'].json === 'string') {\n    parsed = JSON.parse($node['Ollama - Summarize & Classify (HTTP Request)'].json);\n  } else {\n    parsed = $node['Ollama - Summarize & Classify (HTTP Request)'].json;\n  }\n} catch (e) {\n  // fallback: create conservative stub\n  parsed = {\n    english_summary: '',\n    arabic_summary: '',\n    relevance_score_arabic_ai: 1,\n    keywords: [],\n    category: 'Market News'\n  };\n}\nreturn [{json: Object.assign({}, $json, {ollama: parsed})}];"
+        "functionCode": "// Parse Ollama response and attach to item\nlet parsed = {};\nconst resp = $node['Ollama - Summarize & Classify (HTTP Request)'].json;\ntry {\n  if (typeof resp === 'string') {\n    parsed = JSON.parse(resp);\n  } else if (resp && typeof resp === 'object') {\n    // Ollama may return an object with a 'text' or 'result'\n    if (resp.text) parsed = JSON.parse(resp.text);\n    else if (resp.result) parsed = typeof resp.result === 'string' ? JSON.parse(resp.result) : resp.result;\n    else parsed = resp;\n  }\n} catch (e) {\n  parsed = {\n    english_summary: '',\n    arabic_summary: '',\n    relevance_score_arabic_ai: 1,\n    keywords: [],\n    category: 'Market News'\n  };\n}\nreturn [{ json: Object.assign({}, $json, { ollama: parsed }) }];"
       },
       "name": "Parse Ollama Response",
       "type": "n8n-nodes-base.function",
@@ -260,10 +244,9 @@
         240
       ]
     },
-
     {
       "parameters": {
-        "functionCode": "// Extract ogImage fallback & coerce relevance score to number\nconst o = $json;\nconst rel = parseInt((o.ollama && o.ollama.relevance_score_arabic_ai) || (o.ollama && o.ollama.relevance_score) || 1, 10) || 1;\nreturn [{json: Object.assign({}, o, {\n  relevance: rel,\n  keywords: (o.ollama && o.ollama.keywords) || [],\n  category: (o.ollama && o.ollama.category) || 'Market News',\n  english_summary: (o.ollama && o.ollama.english_summary) || '',\n  arabic_summary: (o.ollama && o.ollama.arabic_summary) || '',\n  image: o.ogImage || null\n})}];"
+        "functionCode": "// Normalize Ollama Output\nconst o = $json;\nconst relRaw = (o.ollama && (o.ollama.relevance_score_arabic_ai || o.ollama.relevance_score)) || 1;\nconst rel = parseInt(relRaw, 10) || 1;\nreturn [{ json: Object.assign({}, o, {\n  relevance: rel,\n  keywords: (o.ollama && o.ollama.keywords) || [],\n  category: (o.ollama && o.ollama.category) || 'Market News',\n  english_summary: (o.ollama && o.ollama.english_summary) || '',\n  arabic_summary: (o.ollama && o.ollama.arabic_summary) || '',\n  image: o.ogImage || null\n}) }];"
       },
       "name": "Normalize Ollama Output",
       "type": "n8n-nodes-base.function",
@@ -273,10 +256,9 @@
         240
       ]
     },
-
     {
       "parameters": {
-        "functionCode": "// Accumulate all enriched items into an array for sorting and final digest\nconst out = [];\nfor (const it of items) {\n  out.push(it.json);\n}\nreturn [{json:{articles: out}}];"
+        "functionCode": "// Aggregate enriched articles into one array\nconst arr = items.map(i => i.json);\nreturn [{ json: { articles: arr } }];"
       },
       "name": "Aggregate Enriched Articles",
       "type": "n8n-nodes-base.function",
@@ -286,10 +268,9 @@
         240
       ]
     },
-
     {
       "parameters": {
-        "functionCode": "// Sort by relevance desc and build both JSON and HTML/Markdown digest\nconst data = $json.articles || [];\ndata.sort((a,b)=> (b.relevance || 0) - (a.relevance || 0));\n// Build master JSON\nconst master = { generated_at: new Date().toISOString(), count: data.length, articles: data };\n// Build Markdown digest\nlet md = `# Daily AI News Digest (Arabic AI priority)\\nGenerated: ${master.generated_at}\\nTotal items: ${master.count}\\n\\n`;\nfor (const a of data) {\n  md += `---\\n\\n### ${a.title}\\n`;\n  if (a.image) md += `![](${a.image})\\n\\n`;\n  md += `**Source:** ${a.source || ''}  \\n`;\n  md += `**Published:** ${a.pubDate || ''}  \\n`;\n  md += `**Relevance (Arabic AI):** ${a.relevance} / 10  \\n`;\n  md += `**Keywords:** ${(a.keywords || []).join(', ')}  \\n\\n`;\n  md += `${a.arabic_summary || ''}  \\n\\n`;\n  md += `[Read more](${a.link})\\n\\n`;\n}\nreturn [{json: {master, markdown: md}}];"
+        "functionCode": "// Sort by relevance descending and build master JSON + Markdown digest\nconst data = $json.articles || [];\ndata.sort((a, b) => (b.relevance || 0) - (a.relevance || 0));\nconst master = { generated_at: new Date().toISOString(), count: data.length, articles: data };\nlet md = `# Daily AI News Digest (Arabic AI priority)\\nGenerated: ${master.generated_at}\\nTotal items: ${master.count}\\n\\n`;\nfor (const a of data) {\n  md += `---\\n\\n### ${a.title}\\n`;\n  if (a.image) md += `![](${a.image})\\n\\n`;\n  md += `**Source:** ${a.source || ''}  \\n`;\n  md += `**Published:** ${a.pubDate || ''}  \\n`;\n  md += `**Relevance (Arabic AI):** ${a.relevance} / 10  \\n`;\n  md += `**Keywords:** ${(a.keywords || []).join(', ')}  \\n\\n`;\n  md += `${a.arabic_summary || ''}  \\n\\n`;\n  md += `[Read more](${a.link})\\n\\n`;\n}\nreturn [{ json: { master, markdown: md } }];"
       },
       "name": "Compile Digest (sort & format)",
       "type": "n8n-nodes-base.function",
@@ -299,13 +280,14 @@
         240
       ]
     },
-
     {
       "parameters": {
         "url": "https://api.telegram.org/bot[YOUR_TELEGRAM_BOT_TOKEN]/sendMessage",
         "method": "POST",
         "jsonParameters": true,
-        "options": {},
+        "options": {
+          "timeout": 60
+        },
         "bodyParametersJson": "{\n  \"chat_id\": \"[YOUR_TELEGRAM_CHAT_ID]\",\n  \"text\": \"{{ $json.markdown }}\",\n  \"parse_mode\": \"Markdown\",\n  \"disable_web_page_preview\": false\n}"
       },
       "name": "Send Digest - Telegram (sendMessage)",
@@ -316,13 +298,14 @@
         120
       ]
     },
-
     {
       "parameters": {
         "url": "[YOUR_WEBSITE_API_ENDPOINT]",
         "method": "POST",
         "jsonParameters": true,
-        "options": {},
+        "options": {
+          "timeout": 60
+        },
         "bodyParametersJson": "={{ JSON.stringify($json.master) }}"
       },
       "name": "Send Digest - Website API (POST JSON)",
@@ -333,10 +316,9 @@
         360
       ]
     },
-
     {
       "parameters": {
-        "functionCode": "// WhatsApp integration note - this node doesn't send messages. It provides instructions for Twilio integration.\nreturn [{json: {\n  note: \"WhatsApp integration is optional. Recommended approach: use Twilio's WhatsApp API. Steps: 1) Create Twilio account, enable Sandbox for WhatsApp 2) Use POST to https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Messages.json with from=whatsapp:{TWILIO_WHATSAPP_FROM}, to=whatsapp:{recipient}, Body=your message, and MediaUrl for images. Use Basic Auth with Account SID and Auth Token.\",\n  example_request: {\n    method: 'POST',\n    url: 'https://api.twilio.com/2010-04-01/Accounts/[TWILIO_ACCOUNT_SID]/Messages.json',\n    auth: 'Basic [TWILIO_ACCOUNT_SID:TWILIO_AUTH_TOKEN]',\n    body: {\n      From: 'whatsapp:[TWILIO_WHATSAPP_FROM]',\n      To: 'whatsapp:[DESTINATION_NUMBER]',\n      Body: 'Daily digest summary or link',\n      MediaUrl: '[image_url]'\n    }\n  }\n}}];"
+        "functionCode": "// WhatsApp integration note (Twilio) - for production replace with actual Twilio HTTP Request node and credentials\nreturn [{ json: {\n  note: \"To send the digest via WhatsApp use Twilio's API. Example: POST to https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Messages.json with From=whatsapp:{TWILIO_WHATSAPP_FROM}, To=whatsapp:{DESTINATION}, Body and optional MediaUrl. Use Basic Auth (Account SID / Auth Token).\",\n  example: {\n    method: \"POST\",\n    url: \"https://api.twilio.com/2010-04-01/Accounts/[TWILIO_ACCOUNT_SID]/Messages.json\",\n    body: {\n      From: \"whatsapp:[TWILIO_WHATSAPP_FROM]\",\n      To: \"whatsapp:[DESTINATION_NUMBER]\",\n      Body: \"Top AI stories: ...\",\n      MediaUrl: \"[image_url_optional]\"\n    }\n  }\n}}];"
       },
       "name": "WhatsApp Integration Note (Twilio) - Info",
       "type": "n8n-nodes-base.function",
@@ -346,7 +328,6 @@
         600
       ]
     },
-
     {
       "parameters": {
         "authentication": "predefinedCredentialType",
@@ -366,32 +347,32 @@
       "main": [
         [
           {
-            "node": "RSS - Feed 1 (TechCrunch AI placeholder)",
+            "node": "RSS - TechCrunch AI",
             "type": "main",
             "index": 0
           },
           {
-            "node": "RSS - Feed 2 (VentureBeat AI placeholder)",
+            "node": "RSS - VentureBeat AI",
             "type": "main",
             "index": 0
           },
           {
-            "node": "RSS - Feed 3 (ArXiv/AI placeholder)",
+            "node": "RSS - arXiv cs.AI",
             "type": "main",
             "index": 0
           },
           {
-            "node": "RSS - Feed 4 (AI-specific blog placeholder)",
+            "node": "RSS - AI Trends",
             "type": "main",
             "index": 0
           },
           {
-            "node": "RSS - Feed 5 (Arabic / regional placeholder)",
+            "node": "RSS - Hacker News (tech signals)",
             "type": "main",
             "index": 0
           },
           {
-            "node": "Google News RSS (الذكاء الاصطناعي العربي)",
+            "node": "Google News RSS (الذكاء الاصطناعي)",
             "type": "main",
             "index": 0
           },
@@ -403,8 +384,7 @@
         ]
       ]
     },
-
-    "RSS - Feed 1 (TechCrunch AI placeholder)": {
+    "RSS - TechCrunch AI": {
       "main": [
         [
           {
@@ -415,7 +395,7 @@
         ]
       ]
     },
-    "RSS - Feed 2 (VentureBeat AI placeholder)": {
+    "RSS - VentureBeat AI": {
       "main": [
         [
           {
@@ -426,7 +406,7 @@
         ]
       ]
     },
-    "RSS - Feed 3 (ArXiv/AI placeholder)": {
+    "RSS - arXiv cs.AI": {
       "main": [
         [
           {
@@ -437,7 +417,7 @@
         ]
       ]
     },
-    "RSS - Feed 4 (AI-specific blog placeholder)": {
+    "RSS - AI Trends": {
       "main": [
         [
           {
@@ -448,7 +428,7 @@
         ]
       ]
     },
-    "RSS - Feed 5 (Arabic / regional placeholder)": {
+    "RSS - Hacker News (tech signals)": {
       "main": [
         [
           {
@@ -459,7 +439,7 @@
         ]
       ]
     },
-    "Google News RSS (الذكاء الاصطناعي العربي)": {
+    "Google News RSS (الذكاء الاصطناعي)": {
       "main": [
         [
           {
@@ -652,4 +632,11 @@
             "node": "NoOp - End",
             "type": "main",
             "index": 0
-      
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {}
+    }
