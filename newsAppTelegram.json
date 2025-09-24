@@ -207,10 +207,11 @@
     {
       "parameters": {
         "url": "http://192.168.30.250:11434/api/generate",
+        "method": "POST",
         "options": {
           "timeout": 120000
         },
-        "bodyParametersJson": "{\n\t\"model\": \"llama2\",\n\t\"stream\": false,\n\t\"prompt\": \"Given the following article link and text content, analyze and return a structured JSON object. The article content is potentially truncated.\\n\\nLink: {{$json.link}}\\nArticle text:\\n{{$json.content_text}}\\n\\nProduce a clean JSON object exactly with these keys: english_summary, arabic_summary, relevance_score_arabic_ai, keywords, category.\\n- english_summary: professional 3-4 sentence summary in English.\\n- arabic_summary: professional 3-4 sentence summary in Arabic (Modern Standard Arabic).\\n- relevance_score_arabic_ai: integer 1-10 (10=direct Arabic AI breakthrough).\\n- keywords: array of up to 6 keywords in Arabic/English.\\n- category: one of ['LLM Development','AI Application','AI Research','Market News','Arabic AI Breakthrough'].\\nReturn only the JSON object (no explanation).\"\n}"
+        "bodyParametersJson": "{\n\t\"model\": \"openai/gpt-oss-20b\",\n\t\"stream\": false,\n\t\"prompt\": \"Given the following article link and text content, analyze and return a structured JSON object. The article content is potentially truncated.\\n\\nLink: {{$json.link}}\\nArticle text:\\n{{$json.content_text}}\\n\\nProduce a clean JSON object exactly with these keys: english_summary, arabic_summary, relevance_score_arabic_ai, keywords, category.\\n- english_summary: professional 3-4 sentence summary in English.\\n- arabic_summary: professional 3-4 sentence summary in Arabic (Modern Standard Arabic).\\n- relevance_score_arabic_ai: integer 1-10 (10=direct Arabic AI breakthrough).\\n- keywords: array of up to 6 keywords in Arabic/English.\\n- category: one of ['LLM Development','AI Application','AI Research','Market News','Arabic AI Breakthrough'].\\nReturn only the JSON object (no explanation).\"\n}"
       },
       "name": "Ollama - Summarize & Classify",
       "type": "n8n-nodes-base.httpRequest",
