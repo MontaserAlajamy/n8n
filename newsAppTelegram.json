@@ -115,22 +115,6 @@
     },
     {
       "parameters": {
-        "mode": "append",
-        "appendKey": "rssItems",
-        "values": {
-          "string": []
-        }
-      },
-      "name": "Set - normalize feed item structure",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 1,
-      "position": [
-        900,
-        300
-      ]
-    },
-    {
-      "parameters": {
         "functionCode": "// Merge items from RSS and other sources into normalized array\nconst output = [];\nfor (const it of items) {\n  const j = it.json;\n  if (Array.isArray(j)) {\n    j.forEach(x => output.push(x));\n  } else {\n    output.push(j);\n  }\n}\nreturn output.map(i => ({ json: i }));"
       },
       "name": "Merge RSS outputs",
@@ -155,24 +139,21 @@
     },
     {
       "parameters": {
-        "url": "={{$json[\"link\"]}}",
+        "url": "={{$json.link}}",
         "responseFormat": "string",
-        "options": {
-          "followRedirect": true,
-          "timeout": 60
-        }
+        "options": {}
       },
       "name": "HTTP Request - Fetch Article HTML",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
       "position": [
         1800,
-        240
+        300
       ]
     },
     {
       "parameters": {
-        "html": "={{$node[\"HTTP Request - Fetch Article HTML\"].binary ? '' : $node[\"HTTP Request - Fetch Article HTML\"].json}}",
+        "url": "={{ $node[\"HTTP Request - Fetch Article HTML\"].binary ? '' : $node[\"HTTP Request - Fetch Article HTML\"].json }}",
         "properties": [
           {
             "key": "mainContent",
@@ -204,7 +185,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Use the extracted content; fallback to snippet; compute word count and filter short articles\nconst html = $node['HTML Extract - main content & og:image'].json.mainContent || $json.summary || '';\nconst text = (html + '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g,' ').trim();\nconst wordCount = text ? text.split(' ').length : 0;\nif (wordCount < 200) {\n  // drop short articles\n  return [];\n}\nreturn [{ json: {\n  title: $node['HTML Extract - main content & og:image'].json.titleFromMeta || $json.title,\n  link: $json.link,\n  pubDate: $json.pubDate,\n  source: $json.source,\n  content_text: text,\n  ogImage: $node['HTML Extract - main content & og:image'].json.ogImage || null\n}}];"
+        "functionCode": "// Use the extracted content; fallback to snippet; compute word count and filter short articles\nconst html = $node['HTML Extract - main content & og:image'].json.mainContent || $json.summary || '';\nconst text = (html + '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g,' ').trim();\nconst wordCount = text ? text.split(' ').length : 0;\nif (wordCount < 200) {\n  // drop short articles\n  return [];\n}\nreturn [{ json: {\n  title: $node['HTML Extract - main content & og:image'].json.titleFromMeta || $json.title,\n  link: $json.link,\n  pubDate: $json.pubDate,\n  source: $json.source,\n  content_text: text,\n  ogImage: $node['HTML Extract - main content & og:image'].json.ogImage\n} }];"
       },
       "name": "Filter Short Articles (>200 words)",
       "type": "n8n-nodes-base.function",
@@ -216,15 +197,13 @@
     },
     {
       "parameters": {
-        "url": "http://localhost:11434/api/generate",
-        "method": "POST",
-        "jsonParameters": true,
+        "url": "http://192.168.30.250:11434/api/generate",
         "options": {
-          "timeout": 120
+          "timeout": 120000
         },
-        "bodyParametersJson": "={\n  \"model\": \"[YOUR_OLLAMA_MODEL_NAME]\",\n  \"prompt\": `You are an expert assistant. Input article URL: {{$json.link}}\\nArticle text:\\n{{$json.content_text}}\\n\\nProduce a clean JSON object exactly with these keys: english_summary, arabic_summary, relevance_score_arabic_ai, keywords, category.\\n- english_summary: professional 3-4 sentence summary in English.\\n- arabic_summary: professional 3-4 sentence summary in Arabic (Modern Standard Arabic).\\n- relevance_score_arabic_ai: integer 1-10 (10=direct Arabic AI breakthrough).\\n- keywords: array of up to 6 keywords in Arabic/English.\\n- category: one of ['LLM Development','AI Application','AI Research','Market News','Arabic AI Breakthrough'].\\nReturn only the JSON object (no explanation).`,\n  \"max_tokens\": 800\n}"
+        "bodyParametersJson": "{\n\t\"model\": \"llama2\",\n\t\"stream\": false,\n\t\"prompt\": \"Given the following article link and text content, analyze and return a structured JSON object. The article content is potentially truncated.\\n\\nLink: {{$json.link}}\\nArticle text:\\n{{$json.content_text}}\\n\\nProduce a clean JSON object exactly with these keys: english_summary, arabic_summary, relevance_score_arabic_ai, keywords, category.\\n- english_summary: professional 3-4 sentence summary in English.\\n- arabic_summary: professional 3-4 sentence summary in Arabic (Modern Standard Arabic).\\n- relevance_score_arabic_ai: integer 1-10 (10=direct Arabic AI breakthrough).\\n- keywords: array of up to 6 keywords in Arabic/English.\\n- category: one of ['LLM Development','AI Application','AI Research','Market News','Arabic AI Breakthrough'].\\nReturn only the JSON object (no explanation).\"\n}"
       },
-      "name": "Ollama - Summarize & Classify (HTTP Request)",
+      "name": "Ollama - Summarize & Classify",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
       "position": [
@@ -234,7 +213,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Parse Ollama response and attach to item\nlet parsed = {};\nconst resp = $node['Ollama - Summarize & Classify (HTTP Request)'].json;\ntry {\n  if (typeof resp === 'string') {\n    parsed = JSON.parse(resp);\n  } else if (resp && typeof resp === 'object') {\n    // Ollama may return an object with a 'text' or 'result'\n    if (resp.text) parsed = JSON.parse(resp.text);\n    else if (resp.result) parsed = typeof resp.result === 'string' ? JSON.parse(resp.result) : resp.result;\n    else parsed = resp;\n  }\n} catch (e) {\n  parsed = {\n    english_summary: '',\n    arabic_summary: '',\n    relevance_score_arabic_ai: 1,\n    keywords: [],\n    category: 'Market News'\n  };\n}\nreturn [{ json: Object.assign({}, $json, { ollama: parsed }) }];"
+        "functionCode": "// Parse Ollama response and attach to item\nlet parsed = {};\nconst resp = $node['Ollama - Summarize & Classify'].json.response;\ntry {\n  if (typeof resp === 'string') {\n    // Clean the response from markdown code blocks if any\n    const cleanedResp = resp.replace(/```json\\n|```/g, '').trim();\n    parsed = JSON.parse(cleanedResp);\n  } else {\n    parsed = resp; // Assume it's already an object\n  }\n} catch (e) {\n  console.log('Error parsing Ollama response:', e, 'Raw response:', resp);\n  parsed = {\n    english_summary: 'Error processing summary.',\n    arabic_summary: 'حدث خطأ أثناء معالجة الملخص.',\n    relevance_score_arabic_ai: 1,\n    keywords: ['error'],\n    category: 'Market News'\n  };\n}\nreturn [{ json: Object.assign({}, $json, { ollama: parsed }) }];"
       },
       "name": "Parse Ollama Response",
       "type": "n8n-nodes-base.function",
@@ -270,7 +249,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Sort by relevance descending and build master JSON + Markdown digest\nconst data = $json.articles || [];\ndata.sort((a, b) => (b.relevance || 0) - (a.relevance || 0));\nconst master = { generated_at: new Date().toISOString(), count: data.length, articles: data };\nlet md = `# Daily AI News Digest (Arabic AI priority)\\nGenerated: ${master.generated_at}\\nTotal items: ${master.count}\\n\\n`;\nfor (const a of data) {\n  md += `---\\n\\n### ${a.title}\\n`;\n  if (a.image) md += `![](${a.image})\\n\\n`;\n  md += `**Source:** ${a.source || ''}  \\n`;\n  md += `**Published:** ${a.pubDate || ''}  \\n`;\n  md += `**Relevance (Arabic AI):** ${a.relevance} / 10  \\n`;\n  md += `**Keywords:** ${(a.keywords || []).join(', ')}  \\n\\n`;\n  md += `${a.arabic_summary || ''}  \\n\\n`;\n  md += `[Read more](${a.link})\\n\\n`;\n}\nreturn [{ json: { master, markdown: md } }];"
+        "functionCode": "// Sort by relevance descending and build master JSON + Markdown digest\nconst data = $json.articles || [];\ndata.sort((a, b) => (b.relevance || 0) - (a.relevance || 0));\nconst master = { generated_at: new Date().toISOString(), count: data.length, articles: data };\n\nlet md = `*Daily AI News Digest (Arabic AI Priority)*\\n`;\nmd += `Generated: ${master.generated_at}\\n`;\nmd += `Total items: ${master.count}\\n\\n`;\n\nfor (const a of data) {\n  md += `--------------------\\n\\n`;\n  md += `*[${a.title}](${a.link})*\\n\\n`;\n  if (a.image) {\n    md += `[ ](${a.image})\\n`; // Invisible link for image preview\n  }\n  md += `*Source:* ${a.source || ''}\\n`;\n  md += `*Published:* ${a.pubDate || ''}\\n`;\n  md += `*Relevance (Arabic AI):* ${a.relevance} / 10\\n`;\n  md += `*Keywords:* ${(a.keywords || []).join(', ')}\\n\\n`;\n  md += `*ملخص:*\\n`;\n  md += `${a.arabic_summary || ''}\\n\\n`;\n  md += `[Read more](${a.link})\\n\\n`;\n}\n\nreturn [{ json: { master, markdown: md } }];"
       },
       "name": "Compile Digest (sort & format)",
       "type": "n8n-nodes-base.function",
@@ -282,38 +261,20 @@
     },
     {
       "parameters": {
-        "url": "https://api.telegram.org/bot[YOUR_TELEGRAM_BOT_TOKEN]/sendMessage",
+        "url": "https://api.telegram.org/bot8368548013:AAGeBXsTAiUCKv1zw8TDENqqLUIX58pLGHo/sendMessage",
         "method": "POST",
         "jsonParameters": true,
         "options": {
-          "timeout": 60
+          "timeout": 60000
         },
-        "bodyParametersJson": "{\n  \"chat_id\": \"[YOUR_TELEGRAM_CHAT_ID]\",\n  \"text\": \"{{ $json.markdown }}\",\n  \"parse_mode\": \"Markdown\",\n  \"disable_web_page_preview\": false\n}"
+        "bodyParametersJson": "{\n  \"chat_id\": \"987654321\",\n  \"text\": \"={{$node[\\\"Compile Digest (sort & format)\\\"].json[\\\"markdown\\\"]}}\",\n  \"parse_mode\": \"Markdown\"\n}"
       },
-      "name": "Send Digest - Telegram (sendMessage)",
+      "name": "Send Digest - Telegram",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
       "position": [
         4200,
-        120
-      ]
-    },
-    {
-      "parameters": {
-        "url": "[YOUR_WEBSITE_API_ENDPOINT]",
-        "method": "POST",
-        "jsonParameters": true,
-        "options": {
-          "timeout": 60
-        },
-        "bodyParametersJson": "={{ JSON.stringify($json.master) }}"
-      },
-      "name": "Send Digest - Website API (POST JSON)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 1,
-      "position": [
-        4200,
-        360
+        240
       ]
     },
     {
@@ -325,14 +286,11 @@
       "typeVersion": 1,
       "position": [
         4200,
-        600
+        410
       ]
     },
     {
-      "parameters": {
-        "authentication": "predefinedCredentialType",
-        "options": {}
-      },
+      "parameters": {},
       "name": "NoOp - End",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
@@ -465,28 +423,6 @@
       "main": [
         [
           {
-            "node": "Set - normalize feed item structure",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Set - normalize feed item structure": {
-      "main": [
-        [
-          {
-            "node": "Merge RSS outputs",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Merge RSS outputs": {
-      "main": [
-        [
-          {
             "node": "Deduplicate (by URL)",
             "type": "main",
             "index": 0
@@ -531,14 +467,14 @@
       "main": [
         [
           {
-            "node": "Ollama - Summarize & Classify (HTTP Request)",
+            "node": "Ollama - Summarize & Classify",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Ollama - Summarize & Classify (HTTP Request)": {
+    "Ollama - Summarize & Classify": {
       "main": [
         [
           {
@@ -586,12 +522,7 @@
       "main": [
         [
           {
-            "node": "Send Digest - Telegram (sendMessage)",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Send Digest - Website API (POST JSON)",
+            "node": "Send Digest - Telegram",
             "type": "main",
             "index": 0
           },
@@ -603,18 +534,7 @@
         ]
       ]
     },
-    "Send Digest - Telegram (sendMessage)": {
-      "main": [
-        [
-          {
-            "node": "NoOp - End",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Send Digest - Website API (POST JSON)": {
+    "Send Digest - Telegram": {
       "main": [
         [
           {
@@ -639,4 +559,4 @@
   },
   "active": false,
   "settings": {}
-    }
+}
