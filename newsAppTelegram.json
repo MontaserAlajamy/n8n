@@ -1,5 +1,5 @@
 {
-  "name": "Daily AI News Digest - Fixed Ollama Workflow",
+  "name": "Daily AI News Digest - Fixed Ollama",
   "nodes": [
     {
       "parameters": {
@@ -10,142 +10,196 @@
       "name": "Schedule Trigger (daily @ 06:00 UTC)",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
-      "position": [200, 200]
+      "position": [200, 300]
     },
     {
       "parameters": {
-        "operation": "getAll",
-        "url": "https://your-news-source-feed-or-api"
+        "url": "https://techcrunch.com/tag/artificial-intelligence/feed/",
+        "options": {
+          "propertyName": "items"
+        }
       },
       "id": "2",
-      "name": "Fetch AI News Articles",
-      "type": "n8n-nodes-base.httpRequest",
+      "name": "RSS - TechCrunch AI",
+      "type": "n8n-nodes-base.rssFeedRead",
       "typeVersion": 1,
-      "position": [400, 200]
+      "position": [400, 300]
     },
     {
       "parameters": {
-        "functionCode": "return items.filter(item => (item.json.content_text || '').split(' ').length > 50);"
+        "mode": "mergeByIndex"
       },
       "id": "3",
-      "name": "Filter Short Articles (≥50 words)",
-      "type": "n8n-nodes-base.function",
+      "name": "Merge RSS outputs",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "property": "link"
+      },
+      "id": "4",
+      "name": "Deduplicate (by URL) & Normalize",
+      "type": "n8n-nodes-base.removeDuplicates",
       "typeVersion": 1,
-      "position": [600, 200]
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$json[\"link\"]}}",
+        "responseFormat": "string"
+      },
+      "id": "5",
+      "name": "HTTP Request - Fetch Article HTML",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "extractionValues": {
+          "values": [
+            {
+              "key": "content",
+              "cssSelector": "article",
+              "returnValue": "text"
+            },
+            {
+              "key": "image",
+              "cssSelector": "meta[property='og:image']",
+              "returnValue": "attribute",
+              "attribute": "content"
+            }
+          ]
+        }
+      },
+      "id": "6",
+      "name": "HTML Extract - main content & og:image",
+      "type": "n8n-nodes-base.htmlExtract",
+      "typeVersion": 2,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json[\"content\"].length}}",
+              "operation": "larger",
+              "value2": 150
+            }
+          ]
+        }
+      },
+      "id": "7",
+      "name": "Filter Short Articles (>150 words)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1400, 300]
     },
     {
       "parameters": {
         "url": "http://192.168.30.250:11434/api/generate",
-        "options": {},
-        "responseFormat": "string",
-        "jsonParameters": true,
-        "sendHeaders": true,
-        "headerParametersJson": "{\n  \"Content-Type\": \"application/json\",\n  \"Accept\": \"application/json\"\n}",
-        "bodyParametersJson": "={\n  \"model\": \"llama3.1:8b\",\n  \"prompt\": \"You are an AI news assistant. Given the article below, return ONLY a valid JSON object with these keys:\\nenglish_summary (3-4 sentences in English),\\narabic_summary (3-4 sentences in Modern Standard Arabic),\\nrelevance_score_arabic_ai (integer 1-10),\\nkeywords (array up to 6),\\ncategory (one of ['LLM Development','AI Application','AI Research','Market News','Arabic AI Breakthrough']).\\n\\nArticle link: {{$json.link}}\\nArticle text: {{$json.content_text}}\\n\\nReturn JSON only.\",\n  \"max_tokens\": 800,\n  \"temperature\": 0.0,\n  \"stream\": false\n}"
-      },
-      "id": "4",
-      "name": "Ollama - Summarize & Classify",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 1,
-      "position": [800, 200]
-    },
-    {
-      "parameters": {
-        "functionCode": "// Parse Ollama raw response robustly\nconst respNode = $node[\"Ollama - Summarize & Classify\"];\nif (!respNode) throw new Error(\"Ollama node not found\");\n\nconst nodeJson = respNode.json || {};\nlet raw = '';\nif (nodeJson.body) raw = nodeJson.body.toString();\nelse if (nodeJson.data) raw = nodeJson.data.toString();\nelse if (nodeJson.response) raw = nodeJson.response.toString();\nelse raw = (typeof nodeJson === 'string') ? nodeJson : JSON.stringify(nodeJson);\n\nraw = raw.replace(/```json\\s*/g, '').replace(/```/g, '').trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  const m = raw.match(/\\{[\\s\\S]*\\}/);\n  if (m) {\n    try { parsed = JSON.parse(m[0]); }\n    catch (e2) { parsed = { parse_error: true, raw }; }\n  } else {\n    parsed = { parse_error: true, raw };\n  }\n}\n\nreturn [{\n  json: Object.assign({}, $json, {\n    ollama_raw: raw,\n    ollama_parsed: parsed\n  })\n}];"
-      },
-      "id": "5",
-      "name": "Parse Ollama Response",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 1,
-      "position": [1000, 200]
-    },
-    {
-      "parameters": {
-        "functionCode": "const p = $json.ollama_parsed || {};\n\nreturn [{\n  json: Object.assign({}, $json, {\n    english_summary: p.english_summary || p.summary_en || p.english || '',\n    arabic_summary: p.arabic_summary || p.summary_ar || p.arabic || '',\n    relevance_score_arabic_ai: parseInt(p.relevance_score_arabic_ai || p.relevance || p.score || 1, 10) || 1,\n    keywords: Array.isArray(p.keywords) ? p.keywords : (p.keywords ? String(p.keywords).split(',').map(s=>s.trim()) : []),\n    category: p.category || 'Market News'\n  })\n}];"
-      },
-      "id": "6",
-      "name": "Normalize Ollama Output",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 1,
-      "position": [1200, 200]
-    },
-    {
-      "parameters": {
-        "mode": "multiplex"
-      },
-      "id": "7",
-      "name": "Aggregate Enriched Articles",
-      "type": "n8n-nodes-base.aggregate",
-      "typeVersion": 1,
-      "position": [1400, 200]
-    },
-    {
-      "parameters": {
-        "functionCode": "const itemsList = items.map(i => i.json);\nlet digest = '📰 *Daily AI News Digest*\\n\\n';\n\nitemsList.forEach((it, idx) => {\n  digest += `*${idx+1}. ${it.category || ''}* (Score: ${it.relevance_score_arabic_ai || 0})\\n`;\n  digest += `EN: ${it.english_summary}\\n`; \n  digest += `AR: ${it.arabic_summary}\\n`;\n  digest += `Keywords: ${(it.keywords || []).join(', ')}\\n`;\n  if (it.link) digest += `Link: ${it.link}\\n`;\n  digest += `--------------------------\\n`;\n});\n\nreturn [{ json: { digest } }];"
+        "method": "POST",
+        "responseFormat": "json",
+        "json": true,
+        "body": {
+          "model": "llama3",
+          "prompt": "Summarize this article in 3-4 sentences and classify it into categories like {News, Research, Opinion}. Article content:\n\n{{$json[\"content\"]}}",
+          "stream": false
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        }
       },
       "id": "8",
-      "name": "Compile Digest",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 1,
-      "position": [1600, 200]
-    },
-    {
-      "parameters": {
-        "chatId": "YOUR_TELEGRAM_CHAT_ID",
-        "text": "={{$json[\"digest\"]}}"
-      },
-      "id": "9",
-      "name": "Telegram - Send Digest",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1,
-      "position": [1800, 100],
-      "credentials": {
-        "telegramApi": "YOUR_TELEGRAM_BOT_CREDENTIAL"
-      }
-    },
-    {
-      "parameters": {
-        "from": "YOUR_WHATSAPP_NUMBER",
-        "to": "TARGET_WHATSAPP_NUMBER",
-        "message": "={{$json[\"digest\"]}}"
-      },
-      "id": "10",
-      "name": "WhatsApp - Send Digest",
-      "type": "n8n-nodes-base.twilio",
-      "typeVersion": 1,
-      "position": [1800, 300],
-      "credentials": {
-        "twilioApi": "YOUR_TWILIO_CREDENTIAL"
-      }
+      "name": "Ollama - Summarize & Classify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1600, 300]
     }
   ],
   "connections": {
     "Schedule Trigger (daily @ 06:00 UTC)": {
-      "main": [[{ "node": "Fetch AI News Articles", "type": "main", "index": 0 }]]
-    },
-    "Fetch AI News Articles": {
-      "main": [[{ "node": "Filter Short Articles (≥50 words)", "type": "main", "index": 0 }]]
-    },
-    "Filter Short Articles (≥50 words)": {
-      "main": [[{ "node": "Ollama - Summarize & Classify", "type": "main", "index": 0 }]]
-    },
-    "Ollama - Summarize & Classify": {
-      "main": [[{ "node": "Parse Ollama Response", "type": "main", "index": 0 }]]
-    },
-    "Parse Ollama Response": {
-      "main": [[{ "node": "Normalize Ollama Output", "type": "main", "index": 0 }]]
-    },
-    "Normalize Ollama Output": {
-      "main": [[{ "node": "Aggregate Enriched Articles", "type": "main", "index": 0 }]]
-    },
-    "Aggregate Enriched Articles": {
-      "main": [[{ "node": "Compile Digest", "type": "main", "index": 0 }]]
-    },
-    "Compile Digest": {
       "main": [
-        { "node": "Telegram - Send Digest", "type": "main", "index": 0 },
-        { "node": "WhatsApp - Send Digest", "type": "main", "index": 0 }
+        [
+          {
+            "node": "RSS - TechCrunch AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS - TechCrunch AI": {
+      "main": [
+        [
+          {
+            "node": "Merge RSS outputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge RSS outputs": {
+      "main": [
+        [
+          {
+            "node": "Deduplicate (by URL) & Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicate (by URL) & Normalize": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Fetch Article HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Fetch Article HTML": {
+      "main": [
+        [
+          {
+            "node": "HTML Extract - main content & og:image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTML Extract - main content & og:image": {
+      "main": [
+        [
+          {
+            "node": "Filter Short Articles (>150 words)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Short Articles (>150 words)": {
+      "main": [
+        [
+          {
+            "node": "Ollama - Summarize & Classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
-  }
+  },
+  "active": true,
+  "settings": {},
+  "versionId": "fixed-ollama-0925"
 }
