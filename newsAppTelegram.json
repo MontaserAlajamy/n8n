@@ -1,5 +1,5 @@
 {
-  "name": "Daily AI News Digest - Fixed Ollama",
+  "name": "Daily AI News Digest - Direct Telegram",
   "nodes": [
     {
       "parameters": {
@@ -46,78 +46,34 @@
       "position": [800, 300]
     },
     {
-      "parameters": {
-        "url": "={{$json[\"link\"]}}",
-        "responseFormat": "string"
-      },
+      "parameters": {},
       "id": "5",
-      "name": "HTTP Request - Fetch Article HTML",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [1000, 300]
-    },
-    {
-      "parameters": {
-        "extractionValues": {
-          "values": [
-            {
-              "key": "content",
-              "cssSelector": "article",
-              "returnValue": "text"
-            },
-            {
-              "key": "image",
-              "cssSelector": "meta[property='og:image']",
-              "returnValue": "attribute",
-              "attribute": "content"
-            }
-          ]
-        }
-      },
-      "id": "6",
-      "name": "HTML Extract - main content & og:image",
-      "type": "n8n-nodes-base.htmlExtract",
-      "typeVersion": 2,
-      "position": [1200, 300]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "number": [
-            {
-              "value1": "={{$json[\"content\"].length}}",
-              "operation": "larger",
-              "value2": 150
-            }
-          ]
-        }
-      },
-      "id": "7",
-      "name": "Filter Short Articles (>150 words)",
-      "type": "n8n-nodes-base.if",
+      "name": "Function - Build Digest Message",
+      "type": "n8n-nodes-base.function",
       "typeVersion": 1,
-      "position": [1400, 300]
+      "position": [1000, 300],
+      "notes": "Combine all RSS items into one formatted Telegram message"
     },
     {
       "parameters": {
-        "url": "http://192.168.30.250:11434/api/generate",
+        "url": "https://api.telegram.org/bot8368548013:AAGeBXsTAiUCKv1zw8TDENqqLUIX58pLGHo/sendMessage",
         "method": "POST",
         "responseFormat": "json",
         "json": true,
         "body": {
-          "model": "llama3",
-          "prompt": "Summarize this article in 3-4 sentences and classify it into categories like {News, Research, Opinion}. Article content:\n\n{{$json[\"content\"]}}",
-          "stream": false
+          "chat_id": "1516596528",
+          "text": "={{$json[\"text\"]}}",
+          "parse_mode": "Markdown"
         },
         "headers": {
           "Content-Type": "application/json"
         }
       },
-      "id": "8",
-      "name": "Ollama - Summarize & Classify",
+      "id": "6",
+      "name": "Send Digest - Telegram",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [1600, 300]
+      "position": [1200, 300]
     }
   ],
   "connections": {
@@ -158,40 +114,18 @@
       "main": [
         [
           {
-            "node": "HTTP Request - Fetch Article HTML",
+            "node": "Function - Build Digest Message",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP Request - Fetch Article HTML": {
+    "Function - Build Digest Message": {
       "main": [
         [
           {
-            "node": "HTML Extract - main content & og:image",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTML Extract - main content & og:image": {
-      "main": [
-        [
-          {
-            "node": "Filter Short Articles (>150 words)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Filter Short Articles (>150 words)": {
-      "main": [
-        [
-          {
-            "node": "Ollama - Summarize & Classify",
+            "node": "Send Digest - Telegram",
             "type": "main",
             "index": 0
           }
@@ -201,5 +135,5 @@
   },
   "active": true,
   "settings": {},
-  "versionId": "fixed-ollama-0925"
+  "versionId": "direct-telegram-0925"
 }
